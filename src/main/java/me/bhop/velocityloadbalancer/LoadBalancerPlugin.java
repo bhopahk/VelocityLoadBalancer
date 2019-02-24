@@ -3,7 +3,7 @@ package me.bhop.velocityloadbalancer;
 import com.google.inject.Inject;
 import com.moandjiezana.toml.Toml;
 import com.velocitypowered.api.event.Subscribe;
-import com.velocitypowered.api.event.connection.PostLoginEvent;
+import com.velocitypowered.api.event.connection.DisconnectEvent;
 import com.velocitypowered.api.event.player.ServerPreConnectEvent;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
 import com.velocitypowered.api.plugin.Plugin;
@@ -12,13 +12,12 @@ import com.velocitypowered.api.proxy.ProxyServer;
 import com.velocitypowered.api.proxy.server.RegisteredServer;
 import org.slf4j.Logger;
 
-import java.io.*;
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 
 @Plugin(
         id = "loadbalancer",
@@ -33,6 +32,7 @@ public class LoadBalancerPlugin {
     private final Logger logger;
 
     private final List<String> lobbies = new ArrayList<>();
+    private final List<UUID> connectedPlayers = new ArrayList<>();
 
     @Inject
     public LoadBalancerPlugin(ProxyServer proxyServer, Logger logger, @DataDirectory Path dataDirectory) {
@@ -70,12 +70,20 @@ public class LoadBalancerPlugin {
     }
 
     @Subscribe
+    public void onLeave(DisconnectEvent event) {
+        connectedPlayers.remove(event.getPlayer().getUniqueId());
+    }
+
+    @Subscribe
     public void onJoin(ServerPreConnectEvent event) {
-        Optional<RegisteredServer> opt = proxyServer.getAllServers().stream().filter(server -> lobbies.contains(server.getServerInfo().getName())).sorted(Comparator.comparingInt(s -> s.getPlayersConnected().size())).findFirst();
-        if (!opt.isPresent()) {
-            logger.warn("No valid lobby servers were detected, so joining player '" + event.getPlayer().getUsername() + "' was connected to the default server.");
-            return;
+        if (!connectedPlayers.contains(event.getPlayer().getUniqueId())) {
+            connectedPlayers.add(event.getPlayer().getUniqueId());
+            Optional<RegisteredServer> opt = proxyServer.getAllServers().stream().filter(server -> lobbies.contains(server.getServerInfo().getName())).sorted(Comparator.comparingInt(s -> s.getPlayersConnected().size())).findFirst();
+            if (!opt.isPresent()) {
+                logger.warn("No valid lobby servers were detected, so joining player '" + event.getPlayer().getUsername() + "' was connected to the default server.");
+                return;
+            }
+            event.setResult(ServerPreConnectEvent.ServerResult.allowed(opt.get()));
         }
-        event.setResult(ServerPreConnectEvent.ServerResult.allowed(opt.get()));
     }
 }
